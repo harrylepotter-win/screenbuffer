@@ -1,0 +1,13 @@
+# Swift build artifacts
+.build/
+*.o
+*.swiftmodule
+
+# Assembled app bundle
+ScreenBuffer.app/
+
+# Recorded output and rolling buffer
+recordings/
+
+# macOS
+.DS_Store

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>ScreenBuffer</string>
+	<key>CFBundleDisplayName</key>
+	<string>ScreenBuffer</string>
+	<key>CFBundleExecutable</key>
+	<string>ScreenBuffer</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.bdavey.screenbuffer</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<!-- Menu-bar agent: no Dock icon, no main window. -->
+	<key>LSUIElement</key>
+	<true/>
+	<!-- Shown in the Screen Recording permission prompt. -->
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>ScreenBuffer continuously records the last 10 minutes of your screen so you can save a clip after hitting a bug.</string>
+</dict>
+</plist>
