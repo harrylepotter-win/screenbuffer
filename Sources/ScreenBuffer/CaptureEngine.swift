@@ -18,7 +18,10 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
 
     // MARK: - Control
 
-    func start() async throws {
+    /// Start or resume capture. **Preserves** an existing rolling buffer if one is
+    /// present (e.g. resuming after sleep) so pre-sleep footage survives. A fresh
+    /// buffer is created only when none exists.
+    func resume() async throws {
         guard !isRunning else { return }
 
         // Throws SCStreamError if Screen Recording permission hasn't been granted.
@@ -35,6 +38,19 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
         let pixelWidth = Int(CGFloat(display.width) * scale)
         let pixelHeight = Int(CGFloat(display.height) * scale)
 
+        // If display geometry changed while suspended (e.g. a monitor was unplugged
+        // during sleep), the buffered segments are incompatible — start fresh.
+        if let existing = store, existing.width != pixelWidth || existing.height != pixelHeight {
+            existing.teardown()
+            store = nil
+        }
+
+        if store == nil {
+            let fresh = SegmentStore(width: pixelWidth, height: pixelHeight)
+            try fresh.prepare()
+            store = fresh
+        }
+
         let config = SCStreamConfiguration()
         config.width = pixelWidth
         config.height = pixelHeight
@@ -42,10 +58,6 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
         config.queueDepth = 6
         config.showsCursor = true
         config.pixelFormat = kCVPixelFormatType_32BGRA
-
-        let store = SegmentStore(width: pixelWidth, height: pixelHeight)
-        try store.prepare()
-        self.store = store
 
         // Empty exclusion list: capture the whole display.
         let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -57,13 +69,26 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
         isRunning = true
     }
 
+    /// Suspend for sleep: stop the stream but KEEP the buffer and its segments, so
+    /// a post-wake dump still includes what happened before sleep.
+    func suspend() async {
+        await stopStream()
+        store?.flushCurrentSegment()
+    }
+
+    /// Stop capture and discard the rolling buffer (explicit user pause / quit).
     func stop() async {
-        guard isRunning, let stream else { return }
-        isRunning = false
-        try? await stream.stopCapture()
-        self.stream = nil
+        await stopStream()
         store?.teardown()
         store = nil
+    }
+
+    private func stopStream() async {
+        isRunning = false
+        if let stream {
+            try? await stream.stopCapture()
+        }
+        self.stream = nil
     }
 
     /// Stitch and save the buffered window. Fails cleanly if not recording.

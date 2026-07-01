@@ -9,8 +9,8 @@ import CoreMedia
 /// Frame ingestion runs on a private serial queue. Dumps stitch/export off that
 /// queue but protect their source segments from retention deletion meanwhile.
 final class SegmentStore {
-    private let width: Int
-    private let height: Int
+    let width: Int
+    let height: Int
     private let queue = DispatchQueue(label: "com.bdavey.screenbuffer.recording")
 
     private var current: SegmentRecorder?
@@ -40,6 +40,15 @@ final class SegmentStore {
         queue.sync {
             current?.finish { _ in }
             current = nil
+        }
+    }
+
+    /// Finalize the in-progress segment but KEEP it and all buffered segments.
+    /// Used when suspending for sleep so post-wake dumps still include pre-sleep
+    /// footage. A fresh segment begins on the next ingested frame after resume.
+    func flushCurrentSegment() {
+        queue.async { [self] in
+            rotate()
         }
     }
 

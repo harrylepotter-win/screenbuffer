@@ -27,8 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.resumeIfNeeded(afterDelay: 1)
         }
 
-        // Wake / display-change events: the reliable trigger for post-sleep resume.
+        // Sleep: pause the stream but preserve the buffer so pre-sleep footage
+        // survives. Wake / display-change: resume onto that same buffer.
         let nc = NSWorkspace.shared.notificationCenter
+        nc.addObserver(self, selector: #selector(systemWillSleep),
+                       name: NSWorkspace.willSleepNotification, object: nil)
         for name in [NSWorkspace.didWakeNotification,
                      NSWorkspace.screensDidWakeNotification,
                      NSWorkspace.activeSpaceDidChangeNotification] {
@@ -70,6 +73,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// About to sleep: suspend capture but keep the rolling buffer intact. Intent
+    /// (`wantsRecording`) is left untouched so wake auto-resumes onto this buffer.
+    @objc private func systemWillSleep() {
+        guard wantsRecording else { return }
+        restartWork?.cancel()
+        Task { @MainActor in
+            await engine.suspend()
+            state = .paused
+            rebuildMenu()
+        }
+    }
+
     /// Woke from sleep (or displays changed). If we're supposed to be recording
     /// but the stream isn't live, kick off a resume. The small delay lets the
     /// window server settle before ScreenCaptureKit tries to attach.
@@ -93,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard self.wantsRecording, !self.engine.isRunning else { return }
             Task { @MainActor in
                 do {
-                    try await self.engine.start()
+                    try await self.engine.resume()
                     self.restartAttempts = 0
                     self.state = .recording
                     self.rebuildMenu()
