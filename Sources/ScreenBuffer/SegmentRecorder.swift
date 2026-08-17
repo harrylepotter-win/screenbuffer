@@ -27,7 +27,7 @@ final class SegmentRecorder {
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: Config.bitrate,
+                AVVideoAverageBitRateKey: Config.bitrate(pixelWidth: width, pixelHeight: height),
                 AVVideoExpectedSourceFrameRateKey: Config.framesPerSecond,
                 AVVideoMaxKeyFrameIntervalDurationKey: Config.segmentDuration,
             ],

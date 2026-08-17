@@ -52,6 +52,14 @@ final class SegmentStore {
         }
     }
 
+    /// Re-apply the retention window now — used when the user shortens the buffer,
+    /// so the excess is dropped immediately rather than at the next rotation.
+    func applyRetentionNow() {
+        queue.async { [self] in
+            applyRetention()
+        }
+    }
+
     // MARK: - Ingestion
 
     /// Feed one captured frame into the rolling buffer.

@@ -34,9 +34,16 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
                           userInfo: [NSLocalizedDescriptionKey: "No display available to capture"])
         }
 
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        // Scale must come from the screen we're *capturing*, not `NSScreen.main`
+        // (which follows keyboard focus). With a Retina laptop panel alongside a
+        // 1× external, focus on the laptop would otherwise apply scale 2 to the
+        // external's dimensions — a pointless 4× upscale that also invalidates
+        // the buffer geometry below.
+        let nativeScale = Self.backingScale(forDisplayID: display.displayID)
+        let scale = Config.captureScale(nativeScale: nativeScale)
         let pixelWidth = Int(CGFloat(display.width) * scale)
         let pixelHeight = Int(CGFloat(display.height) * scale)
+        Config.activeBitrate = Config.bitrate(pixelWidth: pixelWidth, pixelHeight: pixelHeight)
 
         // If display geometry changed while suspended (e.g. a monitor was unplugged
         // during sleep), the buffered segments are incompatible — start fresh.
@@ -66,8 +73,22 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
         try await stream.startCapture()
 
         self.stream = stream
+        captureSize = (pixelWidth, pixelHeight)
         isRunning = true
     }
+
+    /// Backing scale factor of the `NSScreen` matching a ScreenCaptureKit display.
+    /// Defaults to 1 rather than 2 — an over-guess costs 4× the pixels.
+    private static func backingScale(forDisplayID displayID: CGDirectDisplayID) -> CGFloat {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        let screen = NSScreen.screens.first {
+            ($0.deviceDescription[key] as? NSNumber)?.uint32Value == displayID
+        }
+        return screen?.backingScaleFactor ?? 1
+    }
+
+    /// Pixel dimensions of the live capture, for display in the menu.
+    private(set) var captureSize: (width: Int, height: Int)?
 
     /// Suspend for sleep: stop the stream but KEEP the buffer and its segments, so
     /// a post-wake dump still includes what happened before sleep.
@@ -89,6 +110,11 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
             try? await stream.stopCapture()
         }
         self.stream = nil
+    }
+
+    /// The user changed `Config.bufferDuration`; trim anything now outside it.
+    func bufferDurationChanged() {
+        store?.applyRetentionNow()
     }
 
     /// Stitch and save the buffered window. Fails cleanly if not recording.

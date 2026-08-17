@@ -18,6 +18,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var restartWork: DispatchWorkItem?
     private var restartAttempts = 0
 
+    /// Menu items whose titles quote the buffer length; kept so the slider can
+    /// refresh them without a full menu rebuild.
+    private var statusHeaderItem: NSMenuItem?
+    private var saveClipItem: NSMenuItem?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -139,12 +144,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateButton()
 
         let menu = NSMenu()
+        menu.autoenablesItems = false        // the slider item must stay enabled
+        statusHeaderItem = nil
+        saveClipItem = nil
 
         switch state {
         case .recording:
-            menu.addItem(disabledItem("● Recording — last \(minutes) min buffered"))
+            statusHeaderItem = disabledItem("● Recording — last \(Config.formattedBufferDuration) buffered")
+            saveClipItem = action("Save last \(Config.formattedBufferDuration)", #selector(saveClip), key: "s")
+            menu.addItem(statusHeaderItem!)
             menu.addItem(.separator())
-            menu.addItem(action("Save last \(minutes) minutes", #selector(saveClip), key: "s"))
+            menu.addItem(saveClipItem!)
             menu.addItem(action("Pause recording", #selector(togglePause)))
         case .resuming:
             menu.addItem(disabledItem("↻ Resuming recording…"))
@@ -161,6 +171,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(action("Try again", #selector(retryCapture)))
         }
 
+        menu.addItem(.separator())
+        menu.addItem(bufferLengthItem())
+        menu.addItem(retinaCaptureItem())
         menu.addItem(.separator())
         menu.addItem(action("Open recordings folder", #selector(openRecordingsFolder)))
         menu.addItem(.separator())
@@ -188,7 +201,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private var minutes: Int { Int(Config.bufferDuration / 60) }
+    /// The buffer-length slider, hosted in its own menu item. Dragging it edits
+    /// `Config` live; we refresh the duration-dependent titles in place rather than
+    /// rebuilding the menu, which would yank the view out from under the drag.
+    private func bufferLengthItem() -> NSMenuItem {
+        let view = BufferLengthView()
+        view.onChange = { [weak self] _ in
+            guard let self else { return }
+            self.engine.bufferDurationChanged()
+            self.statusHeaderItem?.title = "● Recording — last \(Config.formattedBufferDuration) buffered"
+            self.saveClipItem?.title = "Save last \(Config.formattedBufferDuration)"
+        }
+        let item = NSMenuItem()
+        item.view = view
+        item.isEnabled = true
+        return item
+    }
+
+    /// Checkbox for 2× capture. Subtitled with the resulting frame size so the
+    /// effect — and its cost — is visible before you commit to it.
+    private func retinaCaptureItem() -> NSMenuItem {
+        let item = action("Capture at 2× (Retina)", #selector(toggleRetinaCapture))
+        item.state = Config.retinaCapture ? .on : .off
+        if let size = engine.captureSize {
+            item.toolTip = "Currently capturing \(size.width)×\(size.height). "
+                + "Toggling restarts capture and clears the buffer. "
+                + "On a 1× display this supersamples — larger files, no extra detail."
+        } else {
+            item.toolTip = "Toggling restarts capture and clears the buffer."
+        }
+        return item
+    }
 
     private func disabledItem(_ title: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -227,6 +270,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func retryCapture() { startCapture() }
+
+    /// Flip 2× capture. The frame size changes, so buffered segments are no longer
+    /// compatible — restart cleanly rather than leaving a mixed-resolution buffer
+    /// that can't be stitched.
+    @objc private func toggleRetinaCapture() {
+        Config.retinaCapture.toggle()
+        guard wantsRecording else { rebuildMenu(); return }
+        Task { @MainActor in
+            await engine.stop()
+            startCapture()
+        }
+    }
 
     @objc private func openPrivacySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
